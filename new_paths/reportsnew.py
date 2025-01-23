@@ -161,7 +161,45 @@ def show_questionnaires():
     gb = GridOptionsBuilder.from_dataframe(questionnaire_data)
     gb.configure_default_column(editable=False)
     gb.configure_selection(selection_mode="single", use_checkbox=True)
+    gb.configure_grid_options(
+        # Theme customization
+        rowStyle={'background-color': '#FFFFFF'},  # Default row color
+        # Custom CSS properties for selection
+        cssStyle={
+            '--ag-selected-row-background-color': '#b7e4ff',
+            '--ag-row-hover-color': '#F0FFFF',
+            '--ag-selected-row-background-color-hover': '#a1d9ff',
+            '--ag-range-selection-border-color': '#2196f3',
+            '--ag-range-selection-background-color': '#e5f5ff',
+            '--ag-cell-focus-color': '#89CFF0',
+        }
+    )
+
     gridOptions = gb.build()
+
+    # Define custom CSS
+    custom_css = {
+        # Regular row hover
+        ".ag-row:hover": {
+            "background-color": "#F0FFFF !important"
+        },
+        ".ag-row-selected": {
+            "background-color": "#b7e4ff !important"
+        },
+        ".ag-row-selected:hover": {
+            "background-color": "#a1d9ff !important"
+        },
+        ".ag-checkbox-input-wrapper.ag-checked::after": {
+            "color": "#2196f3"  # Checkbox color when selected
+        },
+        ".ag-cell-focus": {
+            "border-color": "#2196f3 !important",
+            #"background-color": "#e5f5ff !important"
+        },
+        ".ag-cell-focus:not(.ag-cell-range-selected)": {
+            "border-color": "#2196f3 !important"
+        }
+    }
     
     st.subheader("2. Select a Questionnaire:")
     grid_response = AgGrid(
@@ -172,7 +210,8 @@ def show_questionnaires():
         data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
         enable_enterprise_modules=False,
         key='questionnaire_grid',
-        height=questionnaire_table_size(questionnaire_data)
+        height=questionnaire_table_size(questionnaire_data),
+        custom_css = custom_css
     )
     
     selected_rows = grid_response["selected_rows"]
@@ -188,6 +227,7 @@ def show_questionnaires():
     return None
 
 def display_questionnaire_details(questionnaire):
+    
     """Display questionnaire details in the sidebar."""
     st.sidebar.title("Questionnaire Details")
     st.sidebar.write(f"**Name:** {questionnaire['name']}")
@@ -223,7 +263,45 @@ def show_filtered_documents(project_name):
     gb = GridOptionsBuilder.from_dataframe(filtered_data)
     gb.configure_default_column(editable=False)
     gb.configure_selection(selection_mode="multiple", use_checkbox=True)
+    gb.configure_grid_options(
+        # Theme customization
+        rowStyle={'background-color': '#FFFFFF'},  # Default row color
+        # Custom CSS properties for selection
+        cssStyle={
+            '--ag-selected-row-background-color': '#b7e4ff',
+            '--ag-row-hover-color': '#F0FFFF',
+            '--ag-selected-row-background-color-hover': '#a1d9ff',
+            '--ag-range-selection-border-color': '#2196f3',
+            '--ag-range-selection-background-color': '#e5f5ff',
+            '--ag-cell-focus-color': '#89CFF0',
+        }
+    )
+
     gridOptions = gb.build()
+
+    # Define custom CSS
+    custom_css = {
+        # Regular row hover
+        ".ag-row:hover": {
+            "background-color": "#F0FFFF !important"
+        },
+        ".ag-row-selected": {
+            "background-color": "#b7e4ff !important"
+        },
+        ".ag-row-selected:hover": {
+            "background-color": "#a1d9ff !important"
+        },
+        ".ag-checkbox-input-wrapper.ag-checked::after": {
+            "color": "#2196f3"  # Checkbox color when selected
+        },
+        ".ag-cell-focus": {
+            "border-color": "#2196f3 !important",
+            #"background-color": "#e5f5ff !important"
+        },
+        ".ag-cell-focus:not(.ag-cell-range-selected)": {
+            "border-color": "#2196f3 !important"
+        }
+    }
 
     st.subheader("3. Documents to be assigned to the questionnaire:")
     ag_response = AgGrid(
@@ -234,7 +312,8 @@ def show_filtered_documents(project_name):
         data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
         enable_enterprise_modules=False,
         key='documents_grid',
-        height=documents_table_size(filtered_data)
+        height=documents_table_size(filtered_data),
+        custom_css  = custom_css
     )
 
     selected_docs = ag_response["selected_rows"]
@@ -358,6 +437,14 @@ def display_reports_page(db_manager, selected_project, project_details):
     
     st.logo(sidebar_logo, icon_image=main_body_logo)
     
+    st.markdown("""
+    <style>
+        [data-testid=stSidebar] {
+            background-color: #D2E1EB;
+        }
+    </style>
+    """, unsafe_allow_html=True)
+
     """Display the main reports creation page."""
     # Display project information
     st.sidebar.title("Project Information")

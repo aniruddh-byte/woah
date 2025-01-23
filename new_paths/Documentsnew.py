@@ -348,8 +348,45 @@ def Documents_page():
     gb.configure_column("category", editable=True, cellEditor="agSelectCellEditor", 
                    cellEditorParams={"values": categories}) 
     gb.configure_selection(selection_mode="single", use_checkbox=True)
+    gb.configure_grid_options(
+        # Theme customization
+        rowStyle={'background-color': '#FFFFFF'},  # Default row color
+        # Custom CSS properties for selection
+        cssStyle={
+            '--ag-selected-row-background-color': '#b7e4ff',
+            '--ag-row-hover-color': '#F0FFFF',
+            '--ag-selected-row-background-color-hover': '#a1d9ff',
+            '--ag-range-selection-border-color': '#2196f3',
+            '--ag-range-selection-background-color': '#e5f5ff',
+            '--ag-cell-focus-color': '#89CFF0',
+        }
+    )
 
     gridOptions = gb.build()
+
+    # Define custom CSS
+    custom_css = {
+        # Regular row hover
+        ".ag-row:hover": {
+            "background-color": "#F0FFFF !important"
+        },
+        ".ag-row-selected": {
+            "background-color": "#b7e4ff !important"
+        },
+        ".ag-row-selected:hover": {
+            "background-color": "#a1d9ff !important"
+        },
+        ".ag-checkbox-input-wrapper.ag-checked::after": {
+            "color": "#2196f3"  # Checkbox color when selected
+        },
+        ".ag-cell-focus": {
+            "border-color": "#2196f3 !important",
+            #"background-color": "#e5f5ff !important"
+        },
+        ".ag-cell-focus:not(.ag-cell-range-selected)": {
+            "border-color": "#2196f3 !important"
+        }
+    }
 
     ag_response = AgGrid(
         documents_df,
@@ -359,6 +396,7 @@ def Documents_page():
         fit_columns_on_grid_load=True,
         enable_enterprise_modules=False,
         height=table_size(documents_df),
+        custom_css = custom_css
     )
 
     updated_data = ag_response['data']

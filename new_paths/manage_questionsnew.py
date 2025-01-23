@@ -73,7 +73,45 @@ def manage_questions_page(questionnaire_path, selected_questionnaire):
         gb.configure_column("question", editable=False, width=300)
         gb.configure_selection(selection_mode="multiple", use_checkbox=True)
         gb.configure_default_column(editable=False)
+        gb.configure_grid_options(
+        # Theme customization
+        rowStyle={'background-color': '#FFFFFF'},  # Default row color
+        # Custom CSS properties for selection
+        cssStyle={
+            '--ag-selected-row-background-color': '#b7e4ff',
+            '--ag-row-hover-color': '#F0FFFF',
+            '--ag-selected-row-background-color-hover': '#a1d9ff',
+            '--ag-range-selection-border-color': '#2196f3',
+            '--ag-range-selection-background-color': '#e5f5ff',
+            '--ag-cell-focus-color': '#89CFF0',
+            }
+        )
+
         gridOptions = gb.build()
+
+        # Define custom CSS
+        custom_css = {
+            # Regular row hover
+            ".ag-row:hover": {
+                "background-color": "#F0FFFF !important"
+            },
+            ".ag-row-selected": {
+                "background-color": "#b7e4ff !important"
+            },
+            ".ag-row-selected:hover": {
+                "background-color": "#a1d9ff !important"
+            },
+            ".ag-checkbox-input-wrapper.ag-checked::after": {
+                "color": "#2196f3"  # Checkbox color when selected
+            },
+            ".ag-cell-focus": {
+                "border-color": "#2196f3 !important",
+                #"background-color": "#e5f5ff !important"
+            },
+            ".ag-cell-focus:not(.ag-cell-range-selected)": {
+                "border-color": "#2196f3 !important"
+            }
+        }
 
         ag_response = AgGrid(
             questions_df,
@@ -83,7 +121,8 @@ def manage_questions_page(questionnaire_path, selected_questionnaire):
             data_return_mode=DataReturnMode.FILTERED_AND_SORTED,
             enable_enterprise_modules=False,
             height=table_size(questions_df),
-            columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS
+            columns_auto_size_mode=ColumnsAutoSizeMode.FIT_CONTENTS,
+            custom_css = custom_css
         )
 
         selected_rows = ag_response["selected_rows"]

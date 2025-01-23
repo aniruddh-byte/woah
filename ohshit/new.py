@@ -1,99 +1,65 @@
 import streamlit as st
-import PyPDF2
-import re
+import json
+import os
 
-def extract_internal_title(pdf_file):
-    """
-    Extract the title from within the PDF document content.
-    Specifically looks for the first line of text that appears to be a title.
-    """
-    try:
-        # Create a PDF reader object
-        pdf_reader = PyPDF2.PdfReader(pdf_file)
-        
-        if len(pdf_reader.pages) > 0:
-            # Get first page text
-            first_page = pdf_reader.pages[0]
-            text = first_page.extract_text()
-            
-            # Split into lines and clean up
-            lines = [line.strip() for line in text.split('\n') if line.strip()]
-            
-            # Look specifically for title patterns
-            for line in lines[:5]:  # Check first 5 lines
-                # Clean the line
-                cleaned_line = line.strip()
-                
-                # If it's in ALL CAPS, it's likely a title
-                if cleaned_line.isupper():
-                    return cleaned_line
-                
-            # If no ALL CAPS title found, return first non-empty line
-            return lines[0] if lines else None
-            
-        return None
-        
-    except Exception as e:
-        st.error(f"Error processing PDF: {str(e)}")
-        return None
+def switch_theme(theme):
+    # Path to the Streamlit config file
+    config_path = ".streamlit/config.toml"
+    
+    # Create .streamlit directory if it doesn't exist
+    os.makedirs(os.path.dirname(config_path), exist_ok=True)
+    
+    # Prepare the theme configuration
+    if theme == "dark":
+        theme_config = """
+[theme]
+base = "dark"
+primaryColor = "#1E88E5"  # Adjusted for dark mode visibility
+        """
+    else:
+        theme_config = """
+[theme]
+base = "light"
+primaryColor = "#005591"  # Linde blue
+
+[server]
+runOnSave = true
+
+[browser]
+wideMode = true
+        """
+    
+    # Write the configuration
+    with open(config_path, "w") as f:
+        f.write(theme_config)
+    
+    # Force a rerun to apply the theme
+    st.rerun()
 
 def main():
-    st.title("📄 Document Title Extractor")
-    st.write("Upload PDF files to extract titles from document content")
+    # Initialize theme state
+    if 'theme' not in st.session_state:
+        st.session_state.theme = 'light'
+
+    # Create theme toggle in sidebar
+    with st.sidebar:
+        st.title("Theme Settings")
+        if st.toggle("Dark Mode", value=st.session_state.theme == 'dark'):
+            if st.session_state.theme != 'dark':
+                st.session_state.theme = 'dark'
+                switch_theme('dark')
+        else:
+            if st.session_state.theme != 'light':
+                st.session_state.theme = 'light'
+                switch_theme('light')
+
+    # Your main app content
+    st.title("My Streamlit App")
+    st.write("Toggle the theme using the sidebar!")
     
-    # File uploader
-    uploaded_files = st.file_uploader(
-        "Choose PDF files",
-        type="pdf",
-        accept_multiple_files=True
-    )
-    
-    if uploaded_files:
-        st.write("### Extracted Document Titles")
-        
-        for uploaded_file in uploaded_files:
-            with st.expander(f"📄 {uploaded_file.name}"):
-                # Create columns for layout
-                col1, col2 = st.columns([1, 3])
-                
-                with col1:
-                    st.write("**File Name:**")
-                    st.write("**Document Title:**")
-                
-                with col2:
-                    st.write(uploaded_file.name)
-                    # Extract and display title
-                    title = extract_internal_title(uploaded_file)
-                    if title:
-                        st.write(title)
-                    else:
-                        st.write("❌ No title found in document content")
-                
-                # Show first page content for verification
-                if st.button("Show First Page Content", key=uploaded_file.name):
-                    try:
-                        pdf_reader = PyPDF2.PdfReader(uploaded_file)
-                        if len(pdf_reader.pages) > 0:
-                            text = pdf_reader.pages[0].extract_text()
-                            st.text_area("First Page Content:", text, height=200)
-                    except Exception as e:
-                        st.error(f"Error showing content: {str(e)}")
-                
-                # Reset file pointer
-                uploaded_file.seek(0)
-        
-        # Add download button for results
-        if len(uploaded_files) > 0:
-            results = "\n".join([
-                f"File: {f.name}\nTitle: {extract_internal_title(f)}\n"
-                for f in uploaded_files
-            ])
-            st.download_button(
-                label="Download Results",
-                data=results,
-                file_name="extracted_titles.txt",
-                mime="text/plain"
-            )
+    # Example components
+    st.button("Sample Button")
+    st.slider("Sample Slider", 0, 100, 50)
 
 if __name__ == "__main__":
     main()
