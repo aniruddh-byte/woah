@@ -7,6 +7,7 @@ import base64
 import uuid
 import json
 from pathlib import Path
+from PyPDF2 import PdfReader, PdfWriter
 
 # Page configuration with sidebar hidden
 st.set_page_config(page_title="Document Q&A System", layout="wide", initial_sidebar_state="collapsed")
@@ -16,6 +17,15 @@ hide_sidebar_style = """
     <style>
         [data-testid="collapsedControl"] {display: none;}
         section[data-testid="stSidebar"] {display: none;}
+        .pdf-container {
+            display: flex;
+            justify-content: center;  /* Center horizontally */
+            margin-top: 20px;        /* Add space above the PDF viewer */
+        }
+        iframe {
+            width: 700px;            /* Keep original width */
+            height: 1000px;          /* Keep original height */
+        }
     </style>
 """
 st.markdown(hide_sidebar_style, unsafe_allow_html=True)
@@ -127,7 +137,66 @@ def save_document_content():
     with open(docs_dir / "doc_paths.json", 'w') as f:
         json.dump(doc_paths, f)
 
-def main():
+def display_pdf(file_path, start_page):
+    """Display a PDF file in the Streamlit app with a specific starting page."""
+    # Create a base64 encoded string for the PDF file
+    with open(file_path, 'rb') as f:
+        file_content = f.read()
+    base64_pdf = base64.b64encode(file_content).decode('utf-8')
+    
+    # Use a URL fragment to specify the starting page
+    pdf_display = f'<div class="pdf-container"><iframe src="data:application/pdf;base64,{base64_pdf}#page={start_page}" type="application/pdf"></iframe></div>'
+    st.markdown(pdf_display, unsafe_allow_html=True)
+
+def document_viewer():
+    st.title("Document Viewer")
+    
+    # Get the document name and page number from the query parameters
+    doc_name = st.query_params.get("doc_name")
+    page_num_str = st.query_params.get("page_num")
+
+    if doc_name and page_num_str:
+        try:
+            page_num = int(page_num_str)  # Use 1-based index for display
+
+            # Load the document paths mapping
+            docs_dir = Path("docs_cache")
+            with open(docs_dir / "doc_paths.json", 'r') as f:
+                doc_paths = json.load(f)
+            
+            if doc_name in doc_paths:
+                # Get the original file path
+                if 'original_file' in doc_paths[doc_name]:
+                    file_path = Path(doc_paths[doc_name]['original_file'])
+                    if file_path.exists():
+                        # Display the document name as a header
+                        st.subheader(f"Document name: {doc_name}")  # Display the document name above the download button
+                        
+                        # Use Streamlit's built-in download button
+                        with open(file_path, 'rb') as f:
+                            file_data = f.read()
+                        st.download_button(
+                            label="Download PDF",
+                            data=file_data,
+                            file_name=doc_name,
+                            mime='application/pdf'
+                        )
+                        st.markdown("<br>", unsafe_allow_html=True)  # Add some spacing
+
+                        # Display the entire PDF starting from the specific page
+                        display_pdf(file_path, page_num)
+                    else:
+                        st.error(f"Original file not found: {file_path}")
+                else:
+                    st.error(f"Document not found in cache: {doc_name}")
+            else:
+                st.error(f"Document not found in cache: {doc_name}")
+        except Exception as e:
+            st.error(f"Error loading document: {e}")
+    else:
+        st.error("Document name or page number not provided.")
+
+def main_app():
     st.title("📚 Document Q&A System")
     
     model = init_gemini()
@@ -214,7 +283,7 @@ def main():
                         else:
                             base_url = "http://localhost:8501"
                         
-                        viewer_url = f"{base_url}/document_viewer?doc_name={doc_name}&page_num={page_num}"
+                        viewer_url = f"{base_url}/?view=document_viewer&doc_name={doc_name}&page_num={page_num}"
                         
                         st.markdown(
                             f'<a href="{viewer_url}" target="_blank">'
@@ -224,6 +293,16 @@ def main():
                         )
     else:
         st.info("👆 Upload PDF documents to get started!")
+
+def main():
+    # Get the view parameter from query params
+    view = st.query_params.get("view", "main")
+    
+    # Route to the appropriate view
+    if view == "document_viewer":
+        document_viewer()
+    else:
+        main_app()
 
 if __name__ == "__main__":
     main()
