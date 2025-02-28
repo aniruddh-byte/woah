@@ -1,173 +1,137 @@
 import streamlit as st
 import google.generativeai as genai
-from PIL import Image
 import fitz  # PyMuPDF
-import io
 import tempfile
 import os
+import base64
+import uuid
+import json
+from pathlib import Path
 
-# Page configuration
-st.set_page_config(
-    page_title="Document Q&A System",
-    layout="wide",
-    initial_sidebar_state="expanded"
-)
+# Page configuration with sidebar hidden
+st.set_page_config(page_title="Document Q&A System", layout="wide", initial_sidebar_state="collapsed")
 
-# Initialize Gemini
+# Hide the sidebar completely with CSS
+hide_sidebar_style = """
+    <style>
+        [data-testid="collapsedControl"] {display: none;}
+        section[data-testid="stSidebar"] {display: none;}
+    </style>
+"""
+st.markdown(hide_sidebar_style, unsafe_allow_html=True)
+
 def init_gemini():
     try:
         genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-        return (
-            genai.GenerativeModel('gemini-1.5-pro'),  # For text
-            genai.GenerativeModel('gemini-1.5-flash')  # For vision
-        )
+        return genai.GenerativeModel('gemini-1.5-flash')
     except Exception as e:
         st.error(f"Failed to initialize Gemini: {e}")
-        return None, None
+        return None
 
-# Process PDF
-def process_pdf(file, vision_model):
-    content = {
-        'text': {},
-        'images': [],
-        'type': 'pdf'
-    }
+def process_document(file, model):
+    content = {'text': {}, 'type': 'pdf'}
     
     try:
-        # Save uploaded file temporarily
         with tempfile.NamedTemporaryFile(delete=False, suffix='.pdf') as tmp_file:
             tmp_file.write(file.getvalue())
             tmp_file.flush()
             
-            # Open PDF
             doc = fitz.open(tmp_file.name)
             
             # Process each page
             for page_num in range(len(doc)):
                 page = doc[page_num]
-                
-                # Extract text
                 text = page.get_text()
                 if text.strip():
                     content['text'][page_num + 1] = text
-                
-                # Extract images
-                for img_index, img in enumerate(page.get_images()):
-                    try:
-                        # Get image data
-                        xref = img[0]
-                        base_image = doc.extract_image(xref)
-                        image_bytes = base_image["image"]
-                        image = Image.open(io.BytesIO(image_bytes))
-                        
-                        # Get image description
-                        response = vision_model.generate_content(
-                            ["Describe this image concisely, focusing on key visual elements:", image]
-                        )
-                        
-                        content['images'].append({
-                            'page': page_num + 1,
-                            'image': image,
-                            'description': response.text if response else "No description available"
-                        })
-                    except Exception as e:
-                        st.warning(f"Couldn't process image {img_index + 1} on page {page_num + 1}: {e}")
+                    
+                # Convert page to image for display
+                pix = page.get_pixmap(matrix=fitz.Matrix(2, 2))
+                content[f'page_{page_num + 1}'] = base64.b64encode(pix.tobytes("png")).decode('utf-8')
+            
+            # Save file content for download
+            content['file_content'] = base64.b64encode(file.getvalue()).decode('utf-8')
+            content['file_name'] = file.name
             
             doc.close()
             os.unlink(tmp_file.name)
             return content
             
     except Exception as e:
-        st.error(f"Error processing PDF: {e}")
+        st.error(f"Error processing document: {e}")
         return None
 
-# Process single image
-def process_image(file, vision_model):
+def answer_question(model, documents, question):
     try:
-        image = Image.open(file)
-        response = vision_model.generate_content(
-            ["Describe this image concisely, focusing on key visual elements:", image]
-        )
-        
-        return {
-            'image': image,
-            'description': response.text if response else "No description available",
-            'type': 'image'
-        }
-    except Exception as e:
-        st.error(f"Error processing image: {e}")
-        return None
-
-# Answer questions
-def answer_question(text_model, vision_model, documents, question):
-    try:
-        context_parts = []
-        sources = []
-        
-        # Process each document
+        context = []
         for doc_name, doc_content in documents.items():
-            if doc_content['type'] == 'pdf':
-                # Add text content
-                for page_num, text in doc_content['text'].items():
-                    context_parts.append(f"Content from {doc_name} page {page_num}:\n{text}")
-                    sources.append(f"{doc_name} page {page_num}")
-                
-                # Process images
-                for img_data in doc_content['images']:
-                    try:
-                        response = vision_model.generate_content([
-                            f"Based on this image, answer: {question}",
-                            img_data['image']
-                        ])
-                        if response and response.text:
-                            context_parts.append(response.text)
-                            sources.append(f"Image on page {img_data['page']} of {doc_name}")
-                    except Exception as e:
-                        st.warning(f"Couldn't analyze image in {doc_name}: {e}")
-            
-            elif doc_content['type'] == 'image':
-                try:
-                    response = vision_model.generate_content([
-                        f"Based on this image, answer: {question}",
-                        doc_content['image']
-                    ])
-                    if response and response.text:
-                        context_parts.append(response.text)
-                        sources.append(f"Image: {doc_name}")
-                except Exception as e:
-                    st.warning(f"Couldn't analyze {doc_name}: {e}")
+            for page_num, text in doc_content['text'].items():
+                context.append({
+                    'text': text,
+                    'page': page_num,
+                    'document': doc_name
+                })
         
-        if context_parts:
-            # Generate comprehensive answer
-            prompt = f"""Question: {question}
-
-            Context from documents:
-            {' '.join(context_parts)}
-
-            Please provide a detailed answer that:
-            1. Directly addresses the question
-            2. Uses specific information from the sources
-            3. Maintains a clear and organized structure
-            4. References specific sources when citing information"""
-            
-            response = text_model.generate_content(prompt)
-            if response and response.text:
-                answer = response.text.strip()
-                return f"{answer}\n\nSources:\n" + "\n".join(f"- {source}" for source in sources)
+        prompt_context = ' '.join([f"[Doc: {c['document']}, Page {c['page']}]: {c['text']}" for c in context])
+        prompt = f"""Question: {question}
+        Context: {prompt_context}
+        Provide a concise answer in 50 words or less. Include the document name and page number.
+        Format your response exactly like this:
+        Answer text
+        Referenced document: "document_name",  Page No.: X"""
         
-        return "No relevant information found in the provided documents."
+        response = model.generate_content(prompt)
+        return response.text.strip() if response else "No answer found."
     
     except Exception as e:
         st.error(f"Error generating answer: {e}")
         return None
 
-# Main UI
+def save_document_content():
+    """Save documents in session state to a persistent location for the viewer page"""
+    docs_dir = Path("docs_cache")
+    docs_dir.mkdir(exist_ok=True)
+    
+    doc_paths = {}
+    
+    for doc_name, doc_content in st.session_state.documents.items():
+        # Save encoded page images
+        for page_key, page_data in doc_content.items():
+            if page_key.startswith('page_'):
+                page_num = int(page_key.split('_')[1])
+                
+                # Save the image data
+                img_path = docs_dir / f"{doc_name.replace('/', '_')}_{page_num}.png"
+                if not img_path.exists():  # Only save if doesn't exist
+                    with open(img_path, 'wb') as f:
+                        f.write(base64.b64decode(page_data))
+                
+                # Keep track of paths
+                if doc_name not in doc_paths:
+                    doc_paths[doc_name] = {}
+                doc_paths[doc_name][str(page_num)] = str(img_path)
+        
+        # Save the file content for download if it exists
+        if 'file_content' in doc_content and 'file_name' in doc_content:
+            file_path = docs_dir / f"{doc_name.replace('/', '_')}_original.pdf"
+            if not file_path.exists():  # Only save if doesn't exist
+                with open(file_path, 'wb') as f:
+                    f.write(base64.b64decode(doc_content['file_content']))
+            
+            # Add file path to doc_paths for download
+            if doc_name not in doc_paths:
+                doc_paths[doc_name] = {}
+            doc_paths[doc_name]['original_file'] = str(file_path)
+    
+    # Save a mapping file that the viewer page can access
+    with open(docs_dir / "doc_paths.json", 'w') as f:
+        json.dump(doc_paths, f)
+
 def main():
     st.title("📚 Document Q&A System")
     
-    # Initialize Gemini
-    text_model, vision_model = init_gemini()
-    if not text_model or not vision_model:
+    model = init_gemini()
+    if not model:
         st.stop()
     
     # Initialize session state
@@ -177,93 +141,89 @@ def main():
         st.session_state.qa_history = []
     
     # File upload
-    st.markdown("### 📤 Upload Documents")
-    files = st.file_uploader(
-        "Upload PDF documents",
-        type=['pdf', 'png', 'jpg', 'jpeg'],
-        accept_multiple_files=True,
-        help="Upload PDFs or images to analyze"
-    )
+    files = st.file_uploader("Upload PDF documents", type=['pdf'], accept_multiple_files=True)
     
-    # Process files
     if files:
-        progress = st.progress(0)
-        for i, file in enumerate(files):
+        for file in files:
             if file.name not in st.session_state.documents:
                 with st.spinner(f"Processing {file.name}..."):
-                    if file.type == 'application/pdf':
-                        content = process_pdf(file, vision_model)
-                    else:
-                        content = process_image(file, vision_model)
-                    
+                    content = process_document(file, model)
                     if content:
                         st.session_state.documents[file.name] = content
-            
-            progress.progress((i + 1) / len(files))
-        progress.empty()
         
-        # Display documents
-        st.markdown("### 📄 Uploaded Documents")
-        for doc_name, content in st.session_state.documents.items():
-            with st.expander(f"📎 {doc_name}"):
-                if content['type'] == 'pdf':
-                    # Show text content
-                    st.markdown("#### Text Content")
-                    tabs = st.tabs([f"Page {page}" for page in content['text'].keys()])
-                    for i, (page, text) in enumerate(content['text'].items()):
-                        with tabs[i]:
-                            st.text_area("Content:", text, height=200, disabled=True)
-                    
-                    # Show images
-                    if content['images']:
-                        st.markdown("#### Images")
-                        for img_data in content['images']:
-                            st.image(img_data['image'], 
-                                   caption=f"Page {img_data['page']}", 
-                                   use_column_width=True)
-                            st.markdown(f"**Description:** {img_data['description']}")
-                else:
-                    st.image(content['image'], use_column_width=True)
-                    st.markdown(f"**Description:** {content['description']}")
+        # Save documents for the viewer page to access
+        save_document_content()
         
         # Q&A Interface
         st.markdown("### ❓ Ask Questions")
-        question = st.text_input(
-            "Enter your question:",
-            key="question_input",
-            help="Ask about any content in the uploaded documents"
-        )
+        question = st.text_input("Enter your question:")
         
-        col1, col2 = st.columns([1, 5])
-        with col1:
-            ask = st.button("🔍 Ask", type="primary")
-        with col2:
-            clear = st.button("🗑️ Clear History", type="secondary")
-        
-        if ask and question:
+        if st.button("🔍 Ask", type="primary") and question:
             with st.spinner("Generating answer..."):
-                answer = answer_question(text_model, vision_model, 
-                                      st.session_state.documents, question)
+                answer = answer_question(model, st.session_state.documents, question)
                 if answer:
-                    st.markdown("#### Answer")
-                    st.markdown(answer)
+                    # Split answer into text and reference
+                    answer_parts = answer.split('\nReferenced document:', 1)
+                    if len(answer_parts) == 2:
+                        answer_text = answer_parts[0].strip()
+                        ref_info = answer_parts[1].strip()
+                        
+                        # Extract page number and document name
+                        try:
+                            doc_name = ref_info.split('"')[1]
+                            page_num = int(ref_info.split('Page No.:', 1)[1].strip())
+                            
+                            # Store reference information
+                            doc_ref = {'name': doc_name, 'page': page_num}
+                        except:
+                            doc_ref = None
+                            st.warning("Couldn't parse page reference information")
+                        
+                        # Display answer and reference info
+                        st.markdown("#### Answer")
+                        st.write(answer_text)
+                        st.write(f"Referenced document: {ref_info}")
+                    
                     st.session_state.qa_history.append({
+                        'id': str(uuid.uuid4()),
                         'question': question,
-                        'answer': answer
+                        'answer': answer,
+                        'doc_ref': doc_ref if 'doc_ref' in locals() else None
                     })
         
-        if clear:
-            st.session_state.qa_history = []
-            st.rerun()
-        
-        # Show history
+        # Show history with document reference buttons
         if st.session_state.qa_history:
             st.markdown("### 📜 Previous Q&A")
             for qa in reversed(st.session_state.qa_history):
-                with st.expander(f"Q: {qa['question']}"):
-                    st.markdown(qa['answer'])
+                col1, col2 = st.columns([8, 2])
+                
+                with col1:
+                    with st.expander(f"Q: {qa['question']}"):
+                        st.markdown(qa['answer'])
+                
+                with col2:
+                    if qa.get('doc_ref'):
+                        # Get the URL for the viewer in a new window
+                        doc_name = qa['doc_ref']['name']
+                        page_num = qa['doc_ref']['page']
+                        
+                        # Generate correctly formatted URL for GitHub Codespaces or localhost
+                        codespace_name = os.getenv('CODESPACE_NAME')
+                        if codespace_name:
+                            base_url = f"https://{codespace_name}-8501.app.github.dev"
+                        else:
+                            base_url = "http://localhost:8501"
+                        
+                        viewer_url = f"{base_url}/document_viewer?doc_name={doc_name}&page_num={page_num}"
+                        
+                        st.markdown(
+                            f'<a href="{viewer_url}" target="_blank">'
+                            '<button style="width:100%; padding:8px; background-color:#D3D3D3; color:black; border:none; border-radius:4px; cursor:pointer;">'
+                            'View Document</button></a>',
+                            unsafe_allow_html=True
+                        )
     else:
-        st.info("👆 Upload documents to get started!")
+        st.info("👆 Upload PDF documents to get started!")
 
 if __name__ == "__main__":
     main()
